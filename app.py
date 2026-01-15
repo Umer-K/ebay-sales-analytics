@@ -26,6 +26,23 @@ st.markdown("""
         border-left: 4px solid #667eea;
         margin: 0.5rem 0;
         border-radius: 4px;
+        color: #262730;
+    }
+    
+    .stMarkdown {
+        color: #262730 !important;
+    }
+    
+    div[data-testid="stMarkdownContainer"] p {
+        color: #262730 !important;
+    }
+    
+    div[data-testid="stMarkdownContainer"] strong {
+        color: #1f1f1f !important;
+    }
+    
+    div[data-testid="stMarkdownContainer"] small {
+        color: #555555 !important;
     }
     </style>
     """, unsafe_allow_html=True)
