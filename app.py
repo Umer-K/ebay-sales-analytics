@@ -52,28 +52,64 @@ def parse_sales_data(file_content):
     lines = file_content.strip().split('\n')
     data = []
     
-    for line in lines[1:]:  # Skip header if exists
-        parts = line.split(',')
+    # Check if first line is a header
+    first_line = lines[0].lower()
+    start_index = 1 if any(keyword in first_line for keyword in ['keyword', 'product', 'url', 'sales']) else 0
+    
+    for line in lines[start_index:]:
+        # Split by comma, but handle URLs properly
+        parts = []
+        current_part = ""
+        in_url = False
+        
+        for i, char in enumerate(line):
+            if char == ',' and not in_url:
+                parts.append(current_part)
+                current_part = ""
+            else:
+                current_part += char
+                # Detect if we're in a URL
+                if 'http' in current_part and not in_url:
+                    in_url = True
+                elif in_url and char == ',' and i + 1 < len(line) and line[i+1].isdigit():
+                    in_url = False
+        
+        # Add the last part
+        if current_part:
+            parts.append(current_part)
+        
+        # Clean and validate parts
+        parts = [p.strip() for p in parts]
+        
         if len(parts) >= 6:
-            keyword = parts[0].strip()
-            url = parts[1].strip()
-            dec_sales = int(parts[2].strip()) if parts[2].strip().isdigit() else 0
-            jan_sales = int(parts[3].strip()) if parts[3].strip().isdigit() else 0
-            date_checked = parts[4].strip()
-            status = parts[5].strip()
+            keyword = parts[0]
+            url = parts[1]
             
-            data.append({
-                'Product': keyword,
-                'URL': url,
-                'Dec 2025 Sales': dec_sales,
-                'Jan 2026 Sales': jan_sales,
-                'Total Sales': dec_sales + jan_sales,
-                'Growth': jan_sales - dec_sales,
-                'Growth %': ((jan_sales - dec_sales) / dec_sales * 100) if dec_sales > 0 else (100 if jan_sales > 0 else 0),
-                'Date Checked': date_checked,
-                'Status': status,
-                'Item ID': re.search(r'/itm/(\d+)', url).group(1) if re.search(r'/itm/(\d+)', url) else 'N/A'
-            })
+            # Extract numbers safely
+            try:
+                dec_sales = int(parts[2]) if parts[2].isdigit() else 0
+                jan_sales = int(parts[3]) if parts[3].isdigit() else 0
+            except (ValueError, IndexError):
+                dec_sales = 0
+                jan_sales = 0
+            
+            date_checked = parts[4] if len(parts) > 4 else ""
+            status = parts[5] if len(parts) > 5 else ""
+            
+            # Validate URL format
+            if 'ebay.com' in url:
+                data.append({
+                    'Product': keyword,
+                    'URL': url,
+                    'Dec 2025 Sales': dec_sales,
+                    'Jan 2026 Sales': jan_sales,
+                    'Total Sales': dec_sales + jan_sales,
+                    'Growth': jan_sales - dec_sales,
+                    'Growth %': ((jan_sales - dec_sales) / dec_sales * 100) if dec_sales > 0 else (100 if jan_sales > 0 else 0),
+                    'Date Checked': date_checked,
+                    'Status': status,
+                    'Item ID': re.search(r'/itm/(\d+)', url).group(1) if re.search(r'/itm/(\d+)', url) else 'N/A'
+                })
     
     return pd.DataFrame(data)
 
