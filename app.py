@@ -49,69 +49,53 @@ st.markdown("""
 
 def parse_sales_data(file_content):
     """Parse the sales CSV data"""
-    lines = file_content.strip().split('\n')
-    data = []
+    import io
     
-    # Check if first line is a header
-    first_line = lines[0].lower()
-    start_index = 1 if any(keyword in first_line for keyword in ['keyword', 'product', 'url', 'sales']) else 0
-    
-    for line in lines[start_index:]:
-        # Split by comma, but handle URLs properly
-        parts = []
-        current_part = ""
-        in_url = False
+    # Try using pandas read_csv for more robust parsing
+    try:
+        df = pd.read_csv(io.StringIO(file_content), header=None)
         
-        for i, char in enumerate(line):
-            if char == ',' and not in_url:
-                parts.append(current_part)
-                current_part = ""
-            else:
-                current_part += char
-                # Detect if we're in a URL
-                if 'http' in current_part and not in_url:
-                    in_url = True
-                elif in_url and char == ',' and i + 1 < len(line) and line[i+1].isdigit():
-                    in_url = False
+        # Check if first row is a header
+        if df.iloc[0, 0] and isinstance(df.iloc[0, 0], str) and 'keyword' in df.iloc[0, 0].lower():
+            df = df.iloc[1:]  # Skip header
         
-        # Add the last part
-        if current_part:
-            parts.append(current_part)
+        # Assign column names
+        if len(df.columns) >= 6:
+            df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(len(df.columns) - 6)]
         
-        # Clean and validate parts
-        parts = [p.strip() for p in parts]
+        # Convert sales columns to numeric
+        df['Dec 2025 Sales'] = pd.to_numeric(df['Dec 2025 Sales'], errors='coerce').fillna(0).astype(int)
+        df['Jan 2026 Sales'] = pd.to_numeric(df['Jan 2026 Sales'], errors='coerce').fillna(0).astype(int)
         
-        if len(parts) >= 6:
-            keyword = parts[0]
-            url = parts[1]
-            
-            # Extract numbers safely
-            try:
-                dec_sales = int(parts[2]) if parts[2].isdigit() else 0
-                jan_sales = int(parts[3]) if parts[3].isdigit() else 0
-            except (ValueError, IndexError):
-                dec_sales = 0
-                jan_sales = 0
-            
-            date_checked = parts[4] if len(parts) > 4 else ""
-            status = parts[5] if len(parts) > 5 else ""
-            
-            # Validate URL format
-            if 'ebay.com' in url:
-                data.append({
-                    'Product': keyword,
-                    'URL': url,
-                    'Dec 2025 Sales': dec_sales,
-                    'Jan 2026 Sales': jan_sales,
-                    'Total Sales': dec_sales + jan_sales,
-                    'Growth': jan_sales - dec_sales,
-                    'Growth %': ((jan_sales - dec_sales) / dec_sales * 100) if dec_sales > 0 else (100 if jan_sales > 0 else 0),
-                    'Date Checked': date_checked,
-                    'Status': status,
-                    'Item ID': re.search(r'/itm/(\d+)', url).group(1) if re.search(r'/itm/(\d+)', url) else 'N/A'
-                })
-    
-    return pd.DataFrame(data)
+        # Calculate metrics
+        df['Total Sales'] = df['Dec 2025 Sales'] + df['Jan 2026 Sales']
+        df['Growth'] = df['Jan 2026 Sales'] - df['Dec 2025 Sales']
+        df['Growth %'] = df.apply(
+            lambda row: ((row['Jan 2026 Sales'] - row['Dec 2025 Sales']) / row['Dec 2025 Sales'] * 100) 
+            if row['Dec 2025 Sales'] > 0 
+            else (100 if row['Jan 2026 Sales'] > 0 else 0),
+            axis=1
+        )
+        
+        # Extract Item ID from URL
+        df['Item ID'] = df['URL'].apply(
+            lambda x: re.search(r'/itm/(\d+)', str(x)).group(1) if re.search(r'/itm/(\d+)', str(x)) else 'N/A'
+        )
+        
+        # Clean up data types
+        df['Product'] = df['Product'].astype(str).str.strip()
+        df['URL'] = df['URL'].astype(str).str.strip()
+        df['Date Checked'] = df['Date Checked'].astype(str)
+        df['Status'] = df['Status'].astype(str)
+        
+        # Filter out invalid rows
+        df = df[df['URL'].str.contains('ebay.com', na=False)]
+        
+        return df[['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Total Sales', 'Growth', 'Growth %', 'Date Checked', 'Status', 'Item ID']]
+        
+    except Exception as e:
+        st.error(f"Error parsing CSV: {str(e)}")
+        return pd.DataFrame()
 
 # Title
 st.title("📊 eBay Sales Analytics Dashboard")
