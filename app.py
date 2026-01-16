@@ -186,11 +186,15 @@ if uploaded_file is not None:
     
     # ============ TAB 1: TOP PERFORMERS ============
     with tab1:
+        # Add top N selector
+        st.markdown("### 🏆 Top Performers")
+        top_n = st.selectbox("Show Top:", [10, 20, 30, 40, 50, 100], index=0, key="top_n_selector")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 🥇 Top 10 by Total Sales")
-            top_sales = filtered_df.nlargest(10, 'Total Sales')[['Product', 'Item ID', 'Total Sales', 'Dec 2025 Sales', 'Jan 2026 Sales']]
+            st.markdown(f"### 🥇 Top {top_n} by Total Sales")
+            top_sales = filtered_df.nlargest(top_n, 'Total Sales')[['Product', 'Item ID', 'Total Sales', 'Dec 2025 Sales', 'Jan 2026 Sales']]
             
             for idx, row in top_sales.iterrows():
                 with st.container():
@@ -203,8 +207,8 @@ if uploaded_file is not None:
                     """, unsafe_allow_html=True)
         
         with col2:
-            st.markdown("### 📈 Top 10 Growth (Absolute)")
-            top_growth = filtered_df.nlargest(10, 'Growth')[['Product', 'Item ID', 'Growth', 'Growth %', 'Dec 2025 Sales', 'Jan 2026 Sales']]
+            st.markdown(f"### 📈 Top {top_n} Growth (Absolute)")
+            top_growth = filtered_df.nlargest(top_n, 'Growth')[['Product', 'Item ID', 'Growth', 'Growth %', 'Dec 2025 Sales', 'Jan 2026 Sales']]
             
             for idx, row in top_growth.iterrows():
                 with st.container():
@@ -218,19 +222,25 @@ if uploaded_file is not None:
         
         # Top performers chart
         st.markdown("### 📊 Visual Comparison")
-        top_10_sales = filtered_df.nlargest(10, 'Total Sales')
+        
+        # Limit chart to max 20 for readability
+        chart_limit = min(top_n, 20)
+        if top_n > 20:
+            st.info(f"📊 Chart showing top {chart_limit} for readability. Full list of {top_n} shown above.")
+        
+        top_n_sales = filtered_df.nlargest(chart_limit, 'Total Sales')
         
         fig = go.Figure()
         fig.add_trace(go.Bar(
             name='Dec 2025',
-            x=top_10_sales['Product'],
-            y=top_10_sales['Dec 2025 Sales'],
+            x=top_n_sales['Product'],
+            y=top_n_sales['Dec 2025 Sales'],
             marker_color='#667eea'
         ))
         fig.add_trace(go.Bar(
             name='Jan 2026',
-            x=top_10_sales['Product'],
-            y=top_10_sales['Jan 2026 Sales'],
+            x=top_n_sales['Product'],
+            y=top_n_sales['Jan 2026 Sales'],
             marker_color='#764ba2'
         ))
         
@@ -238,7 +248,7 @@ if uploaded_file is not None:
             barmode='group',
             height=400,
             xaxis_tickangle=-45,
-            title="Top 10 Products - Monthly Comparison"
+            title=f"Top {chart_limit} Products - Monthly Comparison"
         )
         st.plotly_chart(fig, use_container_width=True)
     
