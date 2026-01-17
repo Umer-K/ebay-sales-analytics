@@ -52,18 +52,31 @@ def parse_sales_data(file_content):
     import io
     
     try:
-        df = pd.read_csv(io.StringIO(file_content), header=None)
+        # Read CSV without assuming number of columns, handle errors
+        df = pd.read_csv(io.StringIO(file_content), header=None, on_bad_lines='skip', engine='python')
         
         # Check if first row is a header
         if df.iloc[0, 0] and isinstance(df.iloc[0, 0], str) and 'keyword' in df.iloc[0, 0].lower():
             df = df.iloc[1:]  # Skip header
         
-        # Assign column names based on number of columns
-        if len(df.columns) >= 7:
-            df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Price', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(len(df.columns) - 7)]
-        elif len(df.columns) >= 6:
-            df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(len(df.columns) - 6)]
+        # Reset index after skipping header
+        df = df.reset_index(drop=True)
+        
+        # Determine column count and assign names
+        num_cols = len(df.columns)
+        
+        if num_cols >= 7:
+            df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Price', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(num_cols - 7)]
+        elif num_cols >= 6:
+            df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(num_cols - 6)]
             df['Price'] = 0.0
+        elif num_cols >= 5:
+            df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked'] + [f'Extra_{i}' for i in range(num_cols - 5)]
+            df['Price'] = 0.0
+            df['Status'] = 'N/A'
+        else:
+            st.error(f"CSV file has insufficient columns ({num_cols}). Expected at least 5 columns.")
+            return pd.DataFrame()
         
         # Convert sales columns to numeric
         df['Dec 2025 Sales'] = pd.to_numeric(df['Dec 2025 Sales'], errors='coerce').fillna(0).astype(int)
