@@ -48,7 +48,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 def parse_sales_data(file_content):
-    """Parse the sales CSV data"""
+    """Parse the sales CSV data - handles both old (6 cols) and new (7 cols) formats"""
     import io
     
     try:
@@ -56,7 +56,9 @@ def parse_sales_data(file_content):
         df = pd.read_csv(io.StringIO(file_content), header=None, on_bad_lines='skip', engine='python')
         
         # Check if first row is a header
+        has_header = False
         if df.iloc[0, 0] and isinstance(df.iloc[0, 0], str) and 'keyword' in df.iloc[0, 0].lower():
+            has_header = True
             df = df.iloc[1:]  # Skip header
         
         # Reset index after skipping header
@@ -65,9 +67,21 @@ def parse_sales_data(file_content):
         # Determine column count and assign names
         num_cols = len(df.columns)
         
+        # Detect format by checking if column 3 looks like a price (contains $ or is decimal)
+        format_type = 'old'  # Default to old format (6 cols: Product, URL, Dec, Jan, Date, Status)
+        
         if num_cols >= 7:
-            df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Price', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(num_cols - 7)]
+            # Check if 3rd column (index 2) looks like a price
+            sample_val = str(df.iloc[0, 2]) if len(df) > 0 else ''
+            if '$' in sample_val or (sample_val.replace('.', '').replace(',', '').isdigit() and '.' in sample_val):
+                format_type = 'new'  # New format (7 cols: Product, URL, Price, Dec, Jan, Date, Status)
+        
+        # Assign columns based on detected format
+        if format_type == 'new' and num_cols >= 7:
+            # New format: Product, URL, Price, Dec Sales, Jan Sales, Date, Status
+            df.columns = ['Product', 'URL', 'Price', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(num_cols - 7)]
         elif num_cols >= 6:
+            # Old format: Product, URL, Dec Sales, Jan Sales, Date, Status (no price)
             df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(num_cols - 6)]
             df['Price'] = 0.0
         elif num_cols >= 5:
@@ -699,11 +713,20 @@ else:
     - **Price Analysis**: Understand how pricing impacts sales volume
     - **Export Reports**: Download filtered data for further analysis
     
-    ### 📁 Expected CSV format:
+    ### 📁 Supported CSV formats:
+    
+    **Format 1 (New - with Price):**
     ```
-    Keyword,Product URL,December 2025 Sales,January 2026 Sales,Price,Date Checked,Status
-    silicone pot holders,https://www.ebay.com/itm/174746731680,11,5,12.99,2026-01-14 22:52:31,Success
+    Keyword,URL,Price,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
+    Coolant reservoir tank,https://www.ebay.com/itm/284029150488,$93.48,6,5,2026-01-18 12:25:08,Success
     ```
     
-    **Note:** Price column is optional. If not provided, revenue calculations will show $0.
+    **Format 2 (Old - without Price):**
+    ```
+    Keyword,URL,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
+    silicone pot holders,https://www.ebay.com/itm/174746731680,11,5,2026-01-14 22:52:31,Success
+    ```
+    
+    **Note:** Both formats can be mixed in the same file! The dashboard auto-detects the format.
     """)
+    
