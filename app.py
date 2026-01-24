@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 
 st.set_page_config(page_title="eBay Sales Analytics Dashboard", layout="wide", initial_sidebar_state="expanded")
@@ -10,40 +10,14 @@ st.set_page_config(page_title="eBay Sales Analytics Dashboard", layout="wide", i
 # Custom CSS
 st.markdown("""
     <style>
-    .main {
-        padding: 1rem;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-    }
-    .product-highlight {
-        background-color: #f8f9fa;
-        padding: 1rem;
-        border-left: 4px solid #667eea;
-        margin: 0.5rem 0;
-        border-radius: 4px;
-        color: #262730;
-    }
-    
-    .stMarkdown {
-        color: #262730 !important;
-    }
-    
-    div[data-testid="stMarkdownContainer"] p {
-        color: #262730 !important;
-    }
-    
-    div[data-testid="stMarkdownContainer"] strong {
-        color: #1f1f1f !important;
-    }
-    
-    div[data-testid="stMarkdownContainer"] small {
-        color: #555555 !important;
-    }
+    .main {padding: 1rem;}
+    .metric-card {background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 10px; color: white; text-align: center;}
+    .product-highlight {background-color: #f8f9fa; padding: 1rem; border-left: 4px solid #667eea; margin: 0.5rem 0; border-radius: 4px; color: #262730;}
+    .stMarkdown {color: #262730 !important;}
+    div[data-testid="stMarkdownContainer"] p {color: #262730 !important;}
+    div[data-testid="stMarkdownContainer"] strong {color: #1f1f1f !important;}
+    div[data-testid="stMarkdownContainer"] small {color: #555555 !important;}
+    .recent-badge {background-color: #10b981; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -52,36 +26,23 @@ def parse_sales_data(file_content):
     import io
     
     try:
-        # Read CSV without assuming number of columns, handle errors
         df = pd.read_csv(io.StringIO(file_content), header=None, on_bad_lines='skip', engine='python')
         
-        # Check if first row is a header
-        has_header = False
         if df.iloc[0, 0] and isinstance(df.iloc[0, 0], str) and 'keyword' in df.iloc[0, 0].lower():
-            has_header = True
-            df = df.iloc[1:]  # Skip header
+            df = df.iloc[1:]
         
-        # Reset index after skipping header
         df = df.reset_index(drop=True)
-        
-        # Determine column count and assign names
         num_cols = len(df.columns)
-        
-        # Detect format by checking if column 3 looks like a price (contains $ or is decimal)
-        format_type = 'old'  # Default to old format (6 cols: Product, URL, Dec, Jan, Date, Status)
+        format_type = 'old'
         
         if num_cols >= 7:
-            # Check if 3rd column (index 2) looks like a price
             sample_val = str(df.iloc[0, 2]) if len(df) > 0 else ''
             if '$' in sample_val or (sample_val.replace('.', '').replace(',', '').isdigit() and '.' in sample_val):
-                format_type = 'new'  # New format (7 cols: Product, URL, Price, Dec, Jan, Date, Status)
+                format_type = 'new'
         
-        # Assign columns based on detected format
         if format_type == 'new' and num_cols >= 7:
-            # New format: Product, URL, Price, Dec Sales, Jan Sales, Date, Status
             df.columns = ['Product', 'URL', 'Price', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(num_cols - 7)]
         elif num_cols >= 6:
-            # Old format: Product, URL, Dec Sales, Jan Sales, Date, Status (no price)
             df.columns = ['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked', 'Status'] + [f'Extra_{i}' for i in range(num_cols - 6)]
             df['Price'] = 0.0
         elif num_cols >= 5:
@@ -92,16 +53,16 @@ def parse_sales_data(file_content):
             st.error(f"CSV file has insufficient columns ({num_cols}). Expected at least 5 columns.")
             return pd.DataFrame()
         
-        # Convert sales columns to numeric
         df['Dec 2025 Sales'] = pd.to_numeric(df['Dec 2025 Sales'], errors='coerce').fillna(0).astype(int)
         df['Jan 2026 Sales'] = pd.to_numeric(df['Jan 2026 Sales'], errors='coerce').fillna(0).astype(int)
         
-        # Convert price to numeric, handling currency symbols
         if 'Price' in df.columns:
             df['Price'] = df['Price'].astype(str).str.replace('$', '').str.replace(',', '').str.strip()
             df['Price'] = pd.to_numeric(df['Price'], errors='coerce').fillna(0).astype(float)
         
-        # Calculate metrics
+        # ⭐ Parse datetime for time filtering
+        df['Date Checked'] = pd.to_datetime(df['Date Checked'], errors='coerce')
+        
         df['Total Sales'] = df['Dec 2025 Sales'] + df['Jan 2026 Sales']
         df['Growth'] = df['Jan 2026 Sales'] - df['Dec 2025 Sales']
         df['Growth %'] = df.apply(
@@ -111,24 +72,19 @@ def parse_sales_data(file_content):
             axis=1
         )
         
-        # Calculate revenue metrics
         df['Dec Revenue'] = df['Dec 2025 Sales'] * df['Price']
         df['Jan Revenue'] = df['Jan 2026 Sales'] * df['Price']
         df['Total Revenue'] = df['Total Sales'] * df['Price']
         df['Revenue Growth'] = df['Jan Revenue'] - df['Dec Revenue']
         
-        # Extract Item ID from URL
         df['Item ID'] = df['URL'].apply(
             lambda x: re.search(r'/itm/(\d+)', str(x)).group(1) if re.search(r'/itm/(\d+)', str(x)) else 'N/A'
         )
         
-        # Clean up data types
         df['Product'] = df['Product'].astype(str).str.strip()
         df['URL'] = df['URL'].astype(str).str.strip()
-        df['Date Checked'] = df['Date Checked'].astype(str)
         df['Status'] = df['Status'].astype(str)
         
-        # Filter out invalid rows
         df = df[df['URL'].str.contains('ebay.com', na=False)]
         
         return df[['Product', 'URL', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Price', 'Total Sales', 'Growth', 'Growth %', 
@@ -138,12 +94,10 @@ def parse_sales_data(file_content):
         st.error(f"Error parsing CSV: {str(e)}")
         return pd.DataFrame()
 
-# Title
 st.title("📊 eBay Sales Analytics Dashboard")
 st.markdown("*Track and analyze product performance across December 2025 & January 2026*")
 st.markdown("---")
 
-# File uploader
 uploaded_file = st.file_uploader("📁 Upload your sales data (CSV/TXT)", type=['csv', 'txt'])
 
 if uploaded_file is not None:
@@ -153,26 +107,50 @@ if uploaded_file is not None:
     if df.empty:
         st.error("No valid data found in the uploaded file.")
     else:
-        # ============ SIDEBAR FILTERS ============
         st.sidebar.header("🔍 Filters")
         
-        # Product filter
+        # ⭐ NEW: Time Filter
+        st.sidebar.markdown("### ⏰ Recently Added Filter")
+        time_filter_options = {
+            "All Time": None,
+            "Last 5 minutes": 5,
+            "Last 15 minutes": 15,
+            "Last 30 minutes": 30,
+            "Last 1 hour": 60,
+            "Last 2 hours": 120,
+            "Last 6 hours": 360,
+            "Last 12 hours": 720,
+            "Last 24 hours": 1440,
+            "Last 2 days": 2880,
+            "Last 7 days": 10080
+        }
+        
+        selected_time_filter = st.sidebar.selectbox(
+            "Show items added within:",
+            list(time_filter_options.keys()),
+            index=0
+        )
+        
         products = ['All Products'] + sorted(df['Product'].unique().tolist())
         selected_product = st.sidebar.selectbox("Filter by Product", products)
         
-        # Sales performance filter
         performance_filter = st.sidebar.selectbox(
             "Performance Type",
             ["All", "Growing (Jan > Dec)", "Declining (Jan < Dec)", "No Sales", "New Sales (Dec=0, Jan>0)"]
         )
         
-        # Sales range filters
         st.sidebar.markdown("### Sales Range")
         min_total_sales = st.sidebar.number_input("Min Total Sales", 0, int(df['Total Sales'].max()), 0)
         min_jan_sales = st.sidebar.number_input("Min Jan Sales", 0, int(df['Jan 2026 Sales'].max()), 0)
         
-        # Apply filters
         filtered_df = df.copy()
+        
+        # ⭐ Apply time filter first
+        if time_filter_options[selected_time_filter] is not None:
+            minutes = time_filter_options[selected_time_filter]
+            cutoff_time = datetime.now() - timedelta(minutes=minutes)
+            filtered_df = filtered_df[filtered_df['Date Checked'] >= cutoff_time]
+            st.sidebar.success(f"✨ {len(filtered_df)} items in selected timeframe")
         
         if selected_product != 'All Products':
             filtered_df = filtered_df[filtered_df['Product'] == selected_product]
@@ -189,74 +167,88 @@ if uploaded_file is not None:
         filtered_df = filtered_df[filtered_df['Total Sales'] >= min_total_sales]
         filtered_df = filtered_df[filtered_df['Jan 2026 Sales'] >= min_jan_sales]
         
-        # ============ KEY METRICS ============
         st.subheader("📈 Key Performance Indicators")
         
-        # First row - Sales metrics
+        if time_filter_options[selected_time_filter] is not None:
+            st.info(f"🕐 Showing data for: **{selected_time_filter}**")
+        
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
-            st.metric(
-                "Total Products",
-                f"{len(filtered_df):,}",
-                delta=f"{len(df)} total" if selected_product != 'All Products' else None
-            )
-        
+            st.metric("Total Products", f"{len(filtered_df):,}", delta=f"{len(df)} total" if selected_product != 'All Products' else None)
         with col2:
-            total_dec = filtered_df['Dec 2025 Sales'].sum()
-            st.metric("Dec 2025 Sales", f"{total_dec:,}")
-        
+            category_stats = filtered_df.groupby('Product').agg({
+                'Total Sales': 'sum', 'Dec 2025 Sales': 'sum', 'Jan 2026 Sales': 'sum',
+                'Total Revenue': 'sum', 'Dec Revenue': 'sum', 'Jan Revenue': 'sum',
+                'Price': 'mean', 'URL': 'count'
+            }).reset_index()
+            category_stats.columns = ['Product', 'Total Sales', 'Dec Sales', 'Jan Sales', 'Total Revenue', 'Dec Revenue', 'Jan Revenue', 'Avg Price', 'Listings Count']
+            summary_csv = category_stats.to_csv(index=False).encode('utf-8')
+            st.download_button("⬇️ Download Category Summary (CSV)", data=summary_csv, file_name=f"category_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
+
+else:
+    st.info("👆 Upload your sales data CSV to get started!")
+    
+    st.markdown("""
+    ### 📊 What this dashboard does:
+    
+    - **Track Performance**: Monitor sales across December 2025 and January 2026
+    - **Revenue Analytics**: Track pricing, revenue, and profitability metrics
+    - **⭐ Recently Added Filter**: Filter items by when they were added (last 5min to 7 days)
+    - **Identify Winners**: Find your top-performing products by sales and revenue
+    - **Spot Trends**: Analyze growth patterns and declining products
+    - **Category Insights**: Compare performance across product categories
+    - **Price Analysis**: Understand how pricing impacts sales volume
+    - **Export Reports**: Download filtered data for further analysis
+    
+    ### 📁 Supported CSV formats:
+    
+    **Format 1 (New - with Price):**
+    ```
+    Keyword,URL,Price,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
+    Water Heaters,https://www.ebay.com/itm/336302890907,$41.41,16,45,2026-01-24 11:54:57,Success
+    ```
+    
+    **Format 2 (Old - without Price):**
+    ```
+    Keyword,URL,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
+    silicone pot holders,https://www.ebay.com/itm/174746731680,11,5,2026-01-14 22:52:31,Success
+    ```
+    
+    **Note:** Both formats can be mixed in the same file! The dashboard auto-detects the format.
+    """):
+            st.metric("Dec 2025 Sales", f"{filtered_df['Dec 2025 Sales'].sum():,}")
         with col3:
             total_jan = filtered_df['Jan 2026 Sales'].sum()
+            total_dec = filtered_df['Dec 2025 Sales'].sum()
             growth_pct = ((total_jan - total_dec) / total_dec * 100) if total_dec > 0 else 0
             st.metric("Jan 2026 Sales", f"{total_jan:,}", f"{growth_pct:+.1f}%")
-        
         with col4:
             st.metric("Total Sales", f"{filtered_df['Total Sales'].sum():,}")
-        
         with col5:
-            avg_growth = filtered_df['Growth %'].mean()
-            st.metric("Avg Growth", f"{avg_growth:+.1f}%")
+            st.metric("Avg Growth", f"{filtered_df['Growth %'].mean():+.1f}%")
         
-        # Second row - Revenue metrics
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
-            avg_price = filtered_df['Price'].mean()
-            st.metric("Avg Price", f"${avg_price:.2f}")
-        
+            st.metric("Avg Price", f"${filtered_df['Price'].mean():.2f}")
         with col2:
-            total_dec_rev = filtered_df['Dec Revenue'].sum()
-            st.metric("Dec Revenue", f"${total_dec_rev:,.2f}")
-        
+            st.metric("Dec Revenue", f"${filtered_df['Dec Revenue'].sum():,.2f}")
         with col3:
             total_jan_rev = filtered_df['Jan Revenue'].sum()
+            total_dec_rev = filtered_df['Dec Revenue'].sum()
             rev_growth = ((total_jan_rev - total_dec_rev) / total_dec_rev * 100) if total_dec_rev > 0 else 0
             st.metric("Jan Revenue", f"${total_jan_rev:,.2f}", f"{rev_growth:+.1f}%")
-        
         with col4:
-            total_revenue = filtered_df['Total Revenue'].sum()
-            st.metric("Total Revenue", f"${total_revenue:,.2f}")
-        
+            st.metric("Total Revenue", f"${filtered_df['Total Revenue'].sum():,.2f}")
         with col5:
-            revenue_growth = filtered_df['Revenue Growth'].sum()
-            st.metric("Revenue Growth", f"${revenue_growth:+,.2f}")
+            st.metric("Revenue Growth", f"${filtered_df['Revenue Growth'].sum():+,.2f}")
         
         st.markdown("---")
         
-        # ============ TABS FOR DIFFERENT VIEWS ============
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "🏆 Top Performers", 
-            "📊 Category Analysis", 
-            "📈 Growth Analysis",
-            "💰 Revenue Analysis",
-            "📋 Detailed Table",
-            "🎯 Product Deep Dive"
-        ])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Top Performers", "📊 Category Analysis", "📈 Growth Analysis", "💰 Revenue Analysis", "📋 Detailed Table", "🎯 Product Deep Dive"])
         
-        # ============ TAB 1: TOP PERFORMERS ============
         with tab1:
-            # Add top N selector
             st.markdown("### 🏆 Top Performers")
             top_n = st.selectbox("Show Top:", [10, 20, 30, 40, 50, 100], index=0, key="top_n_selector")
             
@@ -264,37 +256,37 @@ if uploaded_file is not None:
             
             with col1:
                 st.markdown(f"### 🥇 Top {top_n} by Total Sales")
-                top_sales = filtered_df.nlargest(top_n, 'Total Sales')[['Product', 'Item ID', 'Total Sales', 'Price', 'Total Revenue', 'Dec 2025 Sales', 'Jan 2026 Sales']]
+                top_sales = filtered_df.nlargest(top_n, 'Total Sales')[['Product', 'Item ID', 'Total Sales', 'Price', 'Total Revenue', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked']]
                 
                 for idx, row in top_sales.iterrows():
-                    with st.container():
-                        st.markdown(f"""
-                        <div class="product-highlight">
-                            <strong>{row['Product'].title()}</strong><br>
-                            <small>ID: {row['Item ID']} | Price: ${row['Price']:.2f}</small><br>
-                            Total: <strong>{row['Total Sales']}</strong> sales | Revenue: <strong>${row['Total Revenue']:,.2f}</strong><br>
-                            Dec: {row['Dec 2025 Sales']} | Jan: {row['Jan 2026 Sales']}
-                        </div>
-                        """, unsafe_allow_html=True)
+                    time_ago = (datetime.now() - row['Date Checked']).total_seconds() / 60 if pd.notna(row['Date Checked']) else None
+                    badge = f'<span class="recent-badge">NEW</span> ' if time_ago and time_ago < 60 else ''
+                    
+                    st.markdown(f"""
+                    <div class="product-highlight">
+                        {badge}<strong>{row['Product'].title()}</strong><br>
+                        <small>ID: {row['Item ID']} | Price: ${row['Price']:.2f}</small><br>
+                        Total: <strong>{row['Total Sales']}</strong> sales | Revenue: <strong>${row['Total Revenue']:,.2f}</strong><br>
+                        Dec: {row['Dec 2025 Sales']} | Jan: {row['Jan 2026 Sales']}
+                    </div>
+                    """, unsafe_allow_html=True)
             
             with col2:
                 st.markdown(f"### 📈 Top {top_n} Growth (Absolute)")
-                top_growth = filtered_df.nlargest(top_n, 'Growth')[['Product', 'Item ID', 'Growth', 'Growth %', 'Dec 2025 Sales', 'Jan 2026 Sales']]
+                top_growth = filtered_df.nlargest(top_n, 'Growth')[['Product', 'Item ID', 'Growth', 'Growth %', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Date Checked']]
                 
                 for idx, row in top_growth.iterrows():
-                    with st.container():
-                        st.markdown(f"""
-                        <div class="product-highlight">
-                            <strong>{row['Product'].title()}</strong><br>
-                            <small>ID: {row['Item ID']}</small><br>
-                            Growth: <strong>+{row['Growth']}</strong> ({row['Growth %']:+.0f}%) | {row['Dec 2025 Sales']} → {row['Jan 2026 Sales']}
-                        </div>
-                        """, unsafe_allow_html=True)
+                    time_ago = (datetime.now() - row['Date Checked']).total_seconds() / 60 if pd.notna(row['Date Checked']) else None
+                    badge = f'<span class="recent-badge">NEW</span> ' if time_ago and time_ago < 60 else ''
+                    
+                    st.markdown(f"""
+                    <div class="product-highlight">
+                        {badge}<strong>{row['Product'].title()}</strong><br>
+                        <small>ID: {row['Item ID']}</small><br>
+                        Growth: <strong>+{row['Growth']}</strong> ({row['Growth %']:+.0f}%) | {row['Dec 2025 Sales']} → {row['Jan 2026 Sales']}
+                    </div>
+                    """, unsafe_allow_html=True)
             
-            # Top performers chart
-            st.markdown("### 📊 Visual Comparison")
-            
-            # Limit chart to max 20 for readability
             chart_limit = min(top_n, 20)
             if top_n > 20:
                 st.info(f"📊 Chart showing top {chart_limit} for readability. Full list of {top_n} shown above.")
@@ -302,138 +294,57 @@ if uploaded_file is not None:
             top_n_sales = filtered_df.nlargest(chart_limit, 'Total Sales')
             
             fig = go.Figure()
-            fig.add_trace(go.Bar(
-                name='Dec 2025',
-                x=top_n_sales['Product'],
-                y=top_n_sales['Dec 2025 Sales'],
-                marker_color='#667eea'
-            ))
-            fig.add_trace(go.Bar(
-                name='Jan 2026',
-                x=top_n_sales['Product'],
-                y=top_n_sales['Jan 2026 Sales'],
-                marker_color='#764ba2'
-            ))
-            
-            fig.update_layout(
-                barmode='group',
-                height=400,
-                xaxis_tickangle=-45,
-                title=f"Top {chart_limit} Products - Monthly Comparison"
-            )
+            fig.add_trace(go.Bar(name='Dec 2025', x=top_n_sales['Product'], y=top_n_sales['Dec 2025 Sales'], marker_color='#667eea'))
+            fig.add_trace(go.Bar(name='Jan 2026', x=top_n_sales['Product'], y=top_n_sales['Jan 2026 Sales'], marker_color='#764ba2'))
+            fig.update_layout(barmode='group', height=400, xaxis_tickangle=-45, title=f"Top {chart_limit} Products - Monthly Comparison")
             st.plotly_chart(fig, use_container_width=True)
         
-        # ============ TAB 2: CATEGORY ANALYSIS ============
         with tab2:
             st.markdown("### 📦 Product Category Performance")
             
             category_stats = filtered_df.groupby('Product').agg({
-                'Total Sales': 'sum',
-                'Dec 2025 Sales': 'sum',
-                'Jan 2026 Sales': 'sum',
-                'Total Revenue': 'sum',
-                'Dec Revenue': 'sum',
-                'Jan Revenue': 'sum',
-                'Price': 'mean',
-                'URL': 'count'
+                'Total Sales': 'sum', 'Dec 2025 Sales': 'sum', 'Jan 2026 Sales': 'sum',
+                'Total Revenue': 'sum', 'Dec Revenue': 'sum', 'Jan Revenue': 'sum',
+                'Price': 'mean', 'URL': 'count'
             }).reset_index()
             category_stats.columns = ['Product', 'Total Sales', 'Dec Sales', 'Jan Sales', 'Total Revenue', 'Dec Revenue', 'Jan Revenue', 'Avg Price', 'Listings Count']
             category_stats['Avg Sales per Listing'] = (category_stats['Total Sales'] / category_stats['Listings Count']).round(1)
             category_stats['Avg Revenue per Listing'] = (category_stats['Total Revenue'] / category_stats['Listings Count']).round(2)
             category_stats = category_stats.sort_values('Total Sales', ascending=False)
             
-            # Display table
-            st.dataframe(
-                category_stats,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Product": st.column_config.TextColumn("Product Category", width="medium"),
-                    "Total Sales": st.column_config.NumberColumn("Total Sales", format="%d"),
-                    "Dec Sales": st.column_config.NumberColumn("Dec Sales", format="%d"),
-                    "Jan Sales": st.column_config.NumberColumn("Jan Sales", format="%d"),
-                    "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
-                    "Dec Revenue": st.column_config.NumberColumn("Dec Revenue", format="$%.2f"),
-                    "Jan Revenue": st.column_config.NumberColumn("Jan Revenue", format="$%.2f"),
-                    "Avg Price": st.column_config.NumberColumn("Avg Price", format="$%.2f"),
-                    "Listings Count": st.column_config.NumberColumn("# Listings", format="%d"),
-                    "Avg Sales per Listing": st.column_config.NumberColumn("Avg Sales/Listing", format="%.1f"),
-                    "Avg Revenue per Listing": st.column_config.NumberColumn("Avg Revenue/Listing", format="$%.2f"),
-                }
-            )
+            st.dataframe(category_stats, use_container_width=True, hide_index=True)
             
-            # Pie chart
             col1, col2 = st.columns(2)
             
             with col1:
-                fig_pie = px.pie(
-                    category_stats.head(10),
-                    values='Total Sales',
-                    names='Product',
-                    title='Sales Distribution (Top 10 Categories)'
-                )
+                fig_pie = px.pie(category_stats.head(10), values='Total Sales', names='Product', title='Sales Distribution (Top 10 Categories)')
                 st.plotly_chart(fig_pie, use_container_width=True)
             
             with col2:
-                fig_bar = px.bar(
-                    category_stats.head(15),
-                    x='Product',
-                    y='Listings Count',
-                    title='Number of Listings per Category (Top 15)',
-                    color='Total Sales',
-                    color_continuous_scale='Viridis'
-                )
+                fig_bar = px.bar(category_stats.head(15), x='Product', y='Listings Count', title='Number of Listings per Category (Top 15)', color='Total Sales', color_continuous_scale='Viridis')
                 fig_bar.update_layout(xaxis_tickangle=-45)
                 st.plotly_chart(fig_bar, use_container_width=True)
         
-        # ============ TAB 3: GROWTH ANALYSIS ============
         with tab3:
             st.markdown("### 📈 Growth & Trends Analysis")
             
             col1, col2 = st.columns(2)
             
             with col1:
-                # Growth distribution
-                growth_bins = pd.cut(
-                    filtered_df['Growth %'],
-                    bins=[-float('inf'), -50, -10, 0, 10, 50, float('inf')],
-                    labels=['Decline >50%', 'Decline 10-50%', 'Decline <10%', 'Growth <10%', 'Growth 10-50%', 'Growth >50%']
-                )
+                growth_bins = pd.cut(filtered_df['Growth %'], bins=[-float('inf'), -50, -10, 0, 10, 50, float('inf')],
+                                    labels=['Decline >50%', 'Decline 10-50%', 'Decline <10%', 'Growth <10%', 'Growth 10-50%', 'Growth >50%'])
                 growth_dist = growth_bins.value_counts().sort_index()
                 
-                fig_growth = px.bar(
-                    x=growth_dist.index,
-                    y=growth_dist.values,
-                    title='Growth Distribution',
-                    labels={'x': 'Growth Category', 'y': 'Number of Products'},
-                    color=growth_dist.values,
-                    color_continuous_scale='RdYlGn'
-                )
+                fig_growth = px.bar(x=growth_dist.index, y=growth_dist.values, title='Growth Distribution',
+                                   labels={'x': 'Growth Category', 'y': 'Number of Products'}, color=growth_dist.values, color_continuous_scale='RdYlGn')
                 st.plotly_chart(fig_growth, use_container_width=True)
             
             with col2:
-                # Scatter plot
-                fig_scatter = px.scatter(
-                    filtered_df,
-                    x='Dec 2025 Sales',
-                    y='Jan 2026 Sales',
-                    color='Product',
-                    size='Total Sales',
-                    hover_data=['Item ID'],
-                    title='Dec vs Jan Sales Correlation'
-                )
-                fig_scatter.add_trace(
-                    go.Scatter(
-                        x=[0, filtered_df['Dec 2025 Sales'].max()],
-                        y=[0, filtered_df['Dec 2025 Sales'].max()],
-                        mode='lines',
-                        name='Equal Performance',
-                        line=dict(dash='dash', color='gray')
-                    )
-                )
+                fig_scatter = px.scatter(filtered_df, x='Dec 2025 Sales', y='Jan 2026 Sales', color='Product', size='Total Sales', hover_data=['Item ID'], title='Dec vs Jan Sales Correlation')
+                fig_scatter.add_trace(go.Scatter(x=[0, filtered_df['Dec 2025 Sales'].max()], y=[0, filtered_df['Dec 2025 Sales'].max()],
+                                                mode='lines', name='Equal Performance', line=dict(dash='dash', color='gray')))
                 st.plotly_chart(fig_scatter, use_container_width=True)
             
-            # Winners and losers
             col1, col2 = st.columns(2)
             
             with col1:
@@ -446,76 +357,33 @@ if uploaded_file is not None:
                 losers = filtered_df.nsmallest(5, 'Growth')[['Product', 'Item ID', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Growth', 'Growth %']]
                 st.dataframe(losers, hide_index=True, use_container_width=True)
         
-        # ============ TAB 4: REVENUE ANALYSIS ============
         with tab4:
             st.markdown("### 💰 Revenue & Pricing Analysis")
             
             col1, col2 = st.columns(2)
             
             with col1:
-                # Top revenue generators
                 st.markdown("#### 💎 Top 10 Revenue Generators")
                 top_revenue = filtered_df.nlargest(10, 'Total Revenue')[['Product', 'Item ID', 'Price', 'Total Sales', 'Total Revenue']]
-                st.dataframe(
-                    top_revenue,
-                    hide_index=True,
-                    use_container_width=True,
-                    column_config={
-                        "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
-                        "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
-                    }
-                )
+                st.dataframe(top_revenue, hide_index=True, use_container_width=True)
                 
-                # Revenue by price range
                 st.markdown("#### 💵 Revenue by Price Range")
-                price_bins = pd.cut(
-                    filtered_df['Price'],
-                    bins=[0, 10, 25, 50, 100, float('inf')],
-                    labels=['$0-10', '$10-25', '$25-50', '$50-100', '$100+']
-                )
+                price_bins = pd.cut(filtered_df['Price'], bins=[0, 10, 25, 50, 100, float('inf')], labels=['$0-10', '$10-25', '$25-50', '$50-100', '$100+'])
                 revenue_by_price = filtered_df.groupby(price_bins)['Total Revenue'].sum().reset_index()
                 revenue_by_price.columns = ['Price Range', 'Revenue']
                 
-                fig_price_revenue = px.bar(
-                    revenue_by_price,
-                    x='Price Range',
-                    y='Revenue',
-                    title='Total Revenue by Price Range',
-                    color='Revenue',
-                    color_continuous_scale='Greens'
-                )
+                fig_price_revenue = px.bar(revenue_by_price, x='Price Range', y='Revenue', title='Total Revenue by Price Range', color='Revenue', color_continuous_scale='Greens')
                 st.plotly_chart(fig_price_revenue, use_container_width=True)
             
             with col2:
-                # Price vs Sales scatter
                 st.markdown("#### 📊 Price vs Sales Relationship")
-                fig_price_scatter = px.scatter(
-                    filtered_df,
-                    x='Price',
-                    y='Total Sales',
-                    color='Product',
-                    size='Total Revenue',
-                    hover_data=['Item ID', 'Total Revenue'],
-                    title='Price Impact on Sales Volume'
-                )
+                fig_price_scatter = px.scatter(filtered_df, x='Price', y='Total Sales', color='Product', size='Total Revenue', hover_data=['Item ID', 'Total Revenue'], title='Price Impact on Sales Volume')
                 st.plotly_chart(fig_price_scatter, use_container_width=True)
                 
-                # Revenue growth leaders
                 st.markdown("#### 📈 Top 10 Revenue Growth")
                 top_rev_growth = filtered_df.nlargest(10, 'Revenue Growth')[['Product', 'Item ID', 'Price', 'Dec Revenue', 'Jan Revenue', 'Revenue Growth']]
-                st.dataframe(
-                    top_rev_growth,
-                    hide_index=True,
-                    use_container_width=True,
-                    column_config={
-                        "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
-                        "Dec Revenue": st.column_config.NumberColumn("Dec Revenue", format="$%.2f"),
-                        "Jan Revenue": st.column_config.NumberColumn("Jan Revenue", format="$%.2f"),
-                        "Revenue Growth": st.column_config.NumberColumn("Revenue Growth", format="$%.2f"),
-                    }
-                )
+                st.dataframe(top_rev_growth, hide_index=True, use_container_width=True)
             
-            # Additional revenue insights
             st.markdown("---")
             st.markdown("#### 💡 Revenue Insights")
             
@@ -536,61 +404,43 @@ if uploaded_file is not None:
                 low_price_revenue = filtered_df[filtered_df['Price'] < 25]['Total Revenue'].sum()
                 st.metric("Budget (<$25)", f"{low_price_sales:,} sales", f"${low_price_revenue:,.2f} revenue")
         
-        # ============ TAB 5: DETAILED TABLE ============
         with tab5:
             st.markdown("### 📋 Complete Product Listing")
             
-            # Search box
             search_term = st.text_input("🔍 Search products or Item ID", "")
             
             display_df = filtered_df.copy()
             if search_term:
-                display_df = display_df[
-                    display_df['Product'].str.contains(search_term, case=False) |
-                    display_df['Item ID'].str.contains(search_term, case=False)
-                ]
+                display_df = display_df[display_df['Product'].str.contains(search_term, case=False) | display_df['Item ID'].str.contains(search_term, case=False)]
             
-            # Display options
             col1, col2, col3 = st.columns(3)
             with col1:
-                sort_by = st.selectbox("Sort by", ['Total Sales', 'Total Revenue', 'Jan 2026 Sales', 'Growth', 'Growth %', 'Price', 'Product'])
+                sort_by = st.selectbox("Sort by", ['Date Checked', 'Total Sales', 'Total Revenue', 'Jan 2026 Sales', 'Growth', 'Growth %', 'Price', 'Product'])
             with col2:
                 sort_order = st.radio("Order", ['Descending', 'Ascending'], horizontal=True)
             with col3:
                 show_url = st.checkbox("Show URLs", value=False)
             
-            # Sort data
             ascending = (sort_order == 'Ascending')
             display_df = display_df.sort_values(sort_by, ascending=ascending)
             
-            # Select columns to display
-            columns = ['Product', 'Item ID', 'Price', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Total Sales', 'Growth', 'Growth %', 'Total Revenue']
+            columns = ['Product', 'Item ID', 'Price', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Total Sales', 'Growth', 'Growth %', 'Total Revenue', 'Date Checked']
             if show_url:
                 columns.append('URL')
             
-            st.dataframe(
-                display_df[columns],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "URL": st.column_config.LinkColumn("eBay Link"),
-                    "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
-                    "Growth %": st.column_config.NumberColumn("Growth %", format="%.1f%%"),
-                    "Total Sales": st.column_config.NumberColumn("Total Sales", format="%d"),
-                    "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
-                }
-            )
+            st.dataframe(display_df[columns], use_container_width=True, hide_index=True,
+                        column_config={"URL": st.column_config.LinkColumn("eBay Link"),
+                                      "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                                      "Growth %": st.column_config.NumberColumn("Growth %", format="%.1f%%"),
+                                      "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
+                                      "Date Checked": st.column_config.DatetimeColumn("Date Added", format="MMM D, h:mm a")})
             
             st.info(f"Showing {len(display_df)} of {len(filtered_df)} products")
         
-        # ============ TAB 6: PRODUCT DEEP DIVE ============
         with tab6:
             st.markdown("### 🎯 Individual Product Analysis")
             
-            selected_product_deep = st.selectbox(
-                "Select a product to analyze",
-                sorted(df['Product'].unique())
-            )
+            selected_product_deep = st.selectbox("Select a product to analyze", sorted(df['Product'].unique()))
             
             product_data = df[df['Product'] == selected_product_deep]
             
@@ -602,79 +452,44 @@ if uploaded_file is not None:
             with col3:
                 st.metric("Total Jan Sales", f"{product_data['Jan 2026 Sales'].sum():,}")
             with col4:
-                avg_growth = product_data['Growth %'].mean()
-                st.metric("Avg Growth", f"{avg_growth:+.1f}%")
+                st.metric("Avg Growth", f"{product_data['Growth %'].mean():+.1f}%")
             with col5:
-                total_revenue = product_data['Total Revenue'].sum()
-                st.metric("Total Revenue", f"${total_revenue:,.2f}")
+                st.metric("Total Revenue", f"${product_data['Total Revenue'].sum():,.2f}")
             
-            # Second row of metrics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                avg_price = product_data['Price'].mean()
-                st.metric("Avg Price", f"${avg_price:.2f}")
+                st.metric("Avg Price", f"${product_data['Price'].mean():.2f}")
             with col2:
-                min_price = product_data['Price'].min()
-                st.metric("Min Price", f"${min_price:.2f}")
+                st.metric("Min Price", f"${product_data['Price'].min():.2f}")
             with col3:
-                max_price = product_data['Price'].max()
-                st.metric("Max Price", f"${max_price:.2f}")
+                st.metric("Max Price", f"${product_data['Price'].max():.2f}")
             with col4:
-                revenue_growth = product_data['Revenue Growth'].sum()
-                st.metric("Revenue Growth", f"${revenue_growth:+,.2f}")
+                st.metric("Revenue Growth", f"${product_data['Revenue Growth'].sum():+,.2f}")
             
             st.markdown("---")
-            
-            # Individual listings
             st.markdown("#### All Listings for this Product")
-            st.dataframe(
-                product_data[['Item ID', 'Price', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Total Sales', 'Growth', 'Growth %', 'Total Revenue', 'URL']].sort_values('Total Revenue', ascending=False),
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "URL": st.column_config.LinkColumn("eBay Link"),
-                    "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
-                    "Growth %": st.column_config.NumberColumn("Growth %", format="%.1f%%"),
-                    "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
-                }
-            )
+            st.dataframe(product_data[['Item ID', 'Price', 'Dec 2025 Sales', 'Jan 2026 Sales', 'Total Sales', 'Growth', 'Growth %', 'Total Revenue', 'Date Checked', 'URL']].sort_values('Total Revenue', ascending=False),
+                        use_container_width=True, hide_index=True,
+                        column_config={"URL": st.column_config.LinkColumn("eBay Link"),
+                                      "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                                      "Growth %": st.column_config.NumberColumn("Growth %", format="%.1f%%"),
+                                      "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.2f"),
+                                      "Date Checked": st.column_config.DatetimeColumn("Date Added", format="MMM D, h:mm a")})
             
-            # Distribution charts
             col1, col2 = st.columns(2)
             
             with col1:
                 fig_sales_dist = go.Figure()
-                fig_sales_dist.add_trace(go.Histogram(
-                    x=product_data['Total Sales'],
-                    name='Sales Distribution',
-                    nbinsx=20,
-                    marker_color='#667eea'
-                ))
-                fig_sales_dist.update_layout(
-                    title=f'Sales Distribution for {selected_product_deep.title()}',
-                    xaxis_title='Total Sales',
-                    yaxis_title='Number of Listings',
-                    height=300
-                )
+                fig_sales_dist.add_trace(go.Histogram(x=product_data['Total Sales'], name='Sales Distribution', nbinsx=20, marker_color='#667eea'))
+                fig_sales_dist.update_layout(title=f'Sales Distribution for {selected_product_deep.title()}', xaxis_title='Total Sales', yaxis_title='Number of Listings', height=300)
                 st.plotly_chart(fig_sales_dist, use_container_width=True)
             
             with col2:
                 fig_price_dist = go.Figure()
-                fig_price_dist.add_trace(go.Histogram(
-                    x=product_data['Price'],
-                    name='Price Distribution',
-                    nbinsx=20,
-                    marker_color='#764ba2'
-                ))
-                fig_price_dist.update_layout(
-                    title=f'Price Distribution for {selected_product_deep.title()}',
-                    xaxis_title='Price ($)',
-                    yaxis_title='Number of Listings',
-                    height=300
-                )
+                fig_price_dist.add_trace(go.Histogram(x=product_data['Price'], name='Price Distribution', nbinsx=20, marker_color='#764ba2'))
+                fig_price_dist.update_layout(title=f'Price Distribution for {selected_product_deep.title()}', xaxis_title='Price ($)', yaxis_title='Number of Listings', height=300)
                 st.plotly_chart(fig_price_dist, use_container_width=True)
         
-        # ============ EXPORT OPTIONS ============
         st.markdown("---")
         st.subheader("💾 Export Data")
         
@@ -682,50 +497,6 @@ if uploaded_file is not None:
         
         with col1:
             csv = filtered_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="⬇️ Download Filtered Data (CSV)",
-                data=csv,
-                file_name=f"sales_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
+            st.download_button("⬇️ Download Filtered Data (CSV)", data=csv, file_name=f"sales_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
         
-        with col2:
-            summary_csv = category_stats.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="⬇️ Download Category Summary (CSV)",
-                data=summary_csv,
-                file_name=f"category_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-
-else:
-    # Landing page
-    st.info("👆 Upload your sales data CSV to get started!")
-    
-    st.markdown("""
-    ### 📊 What this dashboard does:
-    
-    - **Track Performance**: Monitor sales across December 2025 and January 2026
-    - **Revenue Analytics**: Track pricing, revenue, and profitability metrics
-    - **Identify Winners**: Find your top-performing products by sales and revenue
-    - **Spot Trends**: Analyze growth patterns and declining products
-    - **Category Insights**: Compare performance across product categories
-    - **Price Analysis**: Understand how pricing impacts sales volume
-    - **Export Reports**: Download filtered data for further analysis
-    
-    ### 📁 Supported CSV formats:
-    
-    **Format 1 (New - with Price):**
-    ```
-    Keyword,URL,Price,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
-    Coolant reservoir tank,https://www.ebay.com/itm/284029150488,$93.48,6,5,2026-01-18 12:25:08,Success
-    ```
-    
-    **Format 2 (Old - without Price):**
-    ```
-    Keyword,URL,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
-    silicone pot holders,https://www.ebay.com/itm/174746731680,11,5,2026-01-14 22:52:31,Success
-    ```
-    
-    **Note:** Both formats can be mixed in the same file! The dashboard auto-detects the format.
-    """)
+        with col2
