@@ -60,7 +60,6 @@ def parse_sales_data(file_content):
             df['Price'] = df['Price'].astype(str).str.replace('$', '').str.replace(',', '').str.strip()
             df['Price'] = pd.to_numeric(df['Price'], errors='coerce').fillna(0).astype(float)
         
-        # ⭐ Parse datetime for time filtering
         df['Date Checked'] = pd.to_datetime(df['Date Checked'], errors='coerce')
         
         df['Total Sales'] = df['Dec 2025 Sales'] + df['Jan 2026 Sales']
@@ -109,7 +108,6 @@ if uploaded_file is not None:
     else:
         st.sidebar.header("🔍 Filters")
         
-        # ⭐ NEW: Time Filter
         st.sidebar.markdown("### ⏰ Recently Added Filter")
         time_filter_options = {
             "All Time": None,
@@ -145,7 +143,6 @@ if uploaded_file is not None:
         
         filtered_df = df.copy()
         
-        # ⭐ Apply time filter first
         if time_filter_options[selected_time_filter] is not None:
             minutes = time_filter_options[selected_time_filter]
             cutoff_time = datetime.now() - timedelta(minutes=minutes)
@@ -177,46 +174,6 @@ if uploaded_file is not None:
         with col1:
             st.metric("Total Products", f"{len(filtered_df):,}", delta=f"{len(df)} total" if selected_product != 'All Products' else None)
         with col2:
-            category_stats = filtered_df.groupby('Product').agg({
-                'Total Sales': 'sum', 'Dec 2025 Sales': 'sum', 'Jan 2026 Sales': 'sum',
-                'Total Revenue': 'sum', 'Dec Revenue': 'sum', 'Jan Revenue': 'sum',
-                'Price': 'mean', 'URL': 'count'
-            }).reset_index()
-            category_stats.columns = ['Product', 'Total Sales', 'Dec Sales', 'Jan Sales', 'Total Revenue', 'Dec Revenue', 'Jan Revenue', 'Avg Price', 'Listings Count']
-            summary_csv = category_stats.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Download Category Summary (CSV)", data=summary_csv, file_name=f"category_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
-
-else:
-    st.info("👆 Upload your sales data CSV to get started!")
-    
-    st.markdown("""
-    ### 📊 What this dashboard does:
-    
-    - **Track Performance**: Monitor sales across December 2025 and January 2026
-    - **Revenue Analytics**: Track pricing, revenue, and profitability metrics
-    - **⭐ Recently Added Filter**: Filter items by when they were added (last 5min to 7 days)
-    - **Identify Winners**: Find your top-performing products by sales and revenue
-    - **Spot Trends**: Analyze growth patterns and declining products
-    - **Category Insights**: Compare performance across product categories
-    - **Price Analysis**: Understand how pricing impacts sales volume
-    - **Export Reports**: Download filtered data for further analysis
-    
-    ### 📁 Supported CSV formats:
-    
-    **Format 1 (New - with Price):**
-    ```
-    Keyword,URL,Price,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
-    Water Heaters,https://www.ebay.com/itm/336302890907,$41.41,16,45,2026-01-24 11:54:57,Success
-    ```
-    
-    **Format 2 (Old - without Price):**
-    ```
-    Keyword,URL,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
-    silicone pot holders,https://www.ebay.com/itm/174746731680,11,5,2026-01-14 22:52:31,Success
-    ```
-    
-    **Note:** Both formats can be mixed in the same file! The dashboard auto-detects the format.
-    """):
             st.metric("Dec 2025 Sales", f"{filtered_df['Dec 2025 Sales'].sum():,}")
         with col3:
             total_jan = filtered_df['Jan 2026 Sales'].sum()
@@ -499,4 +456,38 @@ else:
             csv = filtered_df.to_csv(index=False).encode('utf-8')
             st.download_button("⬇️ Download Filtered Data (CSV)", data=csv, file_name=f"sales_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
         
-        with col2
+        with col2:
+            summary_csv = category_stats.to_csv(index=False).encode('utf-8')
+            st.download_button("⬇️ Download Category Summary (CSV)", data=summary_csv, file_name=f"category_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
+
+else:
+    st.info("👆 Upload your sales data CSV to get started!")
+    
+    st.markdown("""
+    ### 📊 What this dashboard does:
+    
+    - **Track Performance**: Monitor sales across December 2025 and January 2026
+    - **Revenue Analytics**: Track pricing, revenue, and profitability metrics
+    - **⭐ Recently Added Filter**: Filter items by when they were added (last 5min to 7 days)
+    - **Identify Winners**: Find your top-performing products by sales and revenue
+    - **Spot Trends**: Analyze growth patterns and declining products
+    - **Category Insights**: Compare performance across product categories
+    - **Price Analysis**: Understand how pricing impacts sales volume
+    - **Export Reports**: Download filtered data for further analysis
+    
+    ### 📁 Supported CSV formats:
+    
+    **Format 1 (New - with Price):**
+    ```
+    Keyword,URL,Price,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
+    Water Heaters,https://www.ebay.com/itm/336302890907,$41.41,16,45,2026-01-24 11:54:57,Success
+    ```
+    
+    **Format 2 (Old - without Price):**
+    ```
+    Keyword,URL,Dec 2025 Sales,Jan 2026 Sales,Date Checked,Status
+    silicone pot holders,https://www.ebay.com/itm/174746731680,11,5,2026-01-14 22:52:31,Success
+    ```
+    
+    **Note:** Both formats can be mixed in the same file! The dashboard auto-detects the format.
+    """)
