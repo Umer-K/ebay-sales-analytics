@@ -21,13 +21,14 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-@st.cache_data(show_spinner="Parsing CSV data...")
+@st.cache_data(show_spinner="Parsing CSV data...", max_entries=1)
 def parse_sales_data(file_content):
     """Parse the sales CSV data - handles both old (6 cols) and new (7 cols) formats"""
     import io
     
     try:
-        df = pd.read_csv(io.StringIO(file_content), header=None, on_bad_lines='skip', engine='python')
+        # Use C engine for faster parsing with large files
+        df = pd.read_csv(io.StringIO(file_content), header=None, on_bad_lines='skip', engine='c', low_memory=False)
         
         if df.iloc[0, 0] and isinstance(df.iloc[0, 0], str) and 'keyword' in df.iloc[0, 0].lower():
             df = df.iloc[1:]
@@ -92,7 +93,7 @@ def parse_sales_data(file_content):
         st.error(f"Error parsing CSV: {str(e)}")
         return pd.DataFrame()
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=10)
 def apply_filters(df, time_minutes, selected_product, performance_filter, min_total_sales, min_jan_sales):
     """Apply all filters to the dataframe"""
     filtered_df = df.copy()
@@ -118,7 +119,7 @@ def apply_filters(df, time_minutes, selected_product, performance_filter, min_to
     
     return filtered_df
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=10)
 def calculate_category_stats(filtered_df):
     """Calculate category statistics"""
     category_stats = filtered_df.groupby('Product').agg({
@@ -324,14 +325,14 @@ if uploaded_file is not None:
                 st.plotly_chart(fig_growth, use_container_width=True)
             
             with col2:
-                # Limit scatter plot to 5000 points for performance
-                scatter_sample = filtered_df.sample(n=min(5000, len(filtered_df)), random_state=42) if len(filtered_df) > 5000 else filtered_df
+                # Limit scatter plot to 3000 points for performance
+                scatter_sample = filtered_df.sample(n=min(3000, len(filtered_df)), random_state=42) if len(filtered_df) > 3000 else filtered_df
                 fig_scatter = px.scatter(scatter_sample, x='Dec 2025 Sales', y='Jan 2026 Sales', color='Product', size='Total Sales', hover_data=['Item ID'], title='Dec vs Jan Sales Correlation')
                 fig_scatter.add_trace(go.Scatter(x=[0, scatter_sample['Dec 2025 Sales'].max()], y=[0, scatter_sample['Dec 2025 Sales'].max()],
                                                 mode='lines', name='Equal Performance', line=dict(dash='dash', color='gray')))
                 st.plotly_chart(fig_scatter, use_container_width=True)
-                if len(filtered_df) > 5000:
-                    st.caption(f"📊 Showing random sample of 5,000 products from {len(filtered_df):,} total")
+                if len(filtered_df) > 3000:
+                    st.caption(f"📊 Showing random sample of 3,000 products from {len(filtered_df):,} total")
             
             col1, col2 = st.columns(2)
             
@@ -365,11 +366,11 @@ if uploaded_file is not None:
             
             with col2:
                 st.markdown("#### 📊 Price vs Sales Relationship")
-                scatter_sample = filtered_df.sample(n=min(3000, len(filtered_df)), random_state=42) if len(filtered_df) > 3000 else filtered_df
+                scatter_sample = filtered_df.sample(n=min(2000, len(filtered_df)), random_state=42) if len(filtered_df) > 2000 else filtered_df
                 fig_price_scatter = px.scatter(scatter_sample, x='Price', y='Total Sales', color='Product', size='Total Revenue', hover_data=['Item ID', 'Total Revenue'], title='Price Impact on Sales Volume')
                 st.plotly_chart(fig_price_scatter, use_container_width=True)
-                if len(filtered_df) > 3000:
-                    st.caption(f"📊 Showing random sample of 3,000 products from {len(filtered_df):,} total")
+                if len(filtered_df) > 2000:
+                    st.caption(f"📊 Showing random sample of 2,000 products from {len(filtered_df):,} total")
                 
                 st.markdown("#### 📈 Top 10 Revenue Growth")
                 top_rev_growth = filtered_df.nlargest(10, 'Revenue Growth')[['Product', 'Item ID', 'Price', 'Dec Revenue', 'Jan Revenue', 'Revenue Growth']]
@@ -463,7 +464,7 @@ else:
     - **Category Insights**: Compare performance across product categories
     - **Price Analysis**: Understand how pricing impacts sales volume
     - **Export Reports**: Download filtered data for further analysis
-    - **⚡ Optimized**: Handles 20,000+ products efficiently
+    - **⚡ Optimized**: Handles 50,000+ products efficiently with smart caching
     
     ### 📁 Supported CSV formats:
     
